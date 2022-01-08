@@ -1,0 +1,19 @@
+﻿syntax = "proto3";
+
+package test;
+
+// The greeting service definition.
+service Sync {
+    // Sends a greeting
+    rpc GetUpdates (stream InputRequest) returns (stream State);
+}
+
+// The request message containing the user's name.
+message InputRequest {
+    string id = 1;
+}
+
+// The response message containing the greetings.
+message State {
+    string message = 1;
+}

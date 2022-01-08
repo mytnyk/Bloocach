@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package Commands;
+
+service Activator {
+  rpc Activate (ActivationRequest) returns (ActivationResponse);
+  rpc Create (CreateRequest) returns (CreateResponse);
+}
+
+message ActivationRequest {
+  int32 id = 1;
+}
+
+message ActivationResponse {
+  string message = 1;
+}
+
+message CreateRequest {
+}
+
+message CreateResponse {
+  int32 id = 1;
+}

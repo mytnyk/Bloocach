@@ -1,0 +1,30 @@
+﻿syntax = "proto3";
+
+package Synchronization;
+
+service Synchronizer {
+    rpc GetUpdates (stream SynchronizerRequest) returns (stream SynchronizerResponse);
+}
+
+message SynchronizerRequest {
+    int64 last_read_chunk = 1;
+    message RegionOfInterest {
+        int32 Xmin = 1;
+        int32 Ymin = 2;
+        int32 Xmax = 3;
+        int32 Ymax = 4;
+    }
+    RegionOfInterest region_of_interest = 2;
+}
+
+message SynchronizerResponse {
+    int64 chunk = 1;
+    message Object {
+        int32 id = 1;
+        string type = 2;
+        string state = 3;
+        int32 X = 4;
+        int32 Y = 5;
+    }
+    repeated Object objects = 2;
+}
