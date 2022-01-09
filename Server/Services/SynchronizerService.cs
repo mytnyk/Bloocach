@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
@@ -18,78 +20,113 @@ namespace Server.Services
         // but then we need somehow read these objects concurrently
         // 2. each client will have its own synchronizer, so these queues can be similar
         // but for different regions of interest they will have different objects.
-        private readonly BufferBlock<ObjectState> _queue = new();
+        //private readonly BlockingCollection<ObjectState> _queue = new();
         public SynchronizerService(World world, ILogger<SynchronizerService> logger)
         {
             _world = world;
             _logger = logger;
             // subscribe to changes in world
-            _world.OnChanged += OnWorldChanged;
+            //_world.OnChanged += OnWorldChanged;
         }
-
+        /*
         private void OnWorldChanged(object _, ObjectState state)
         {
-            _queue.Post(state);
-        }
+            _queue.Add(state);
+        }*/
 
         public override async Task GetUpdates(IAsyncStreamReader<SynchronizerRequest> requestStream, 
             IServerStreamWriter<SynchronizerResponse> responseStream, 
             ServerCallContext context)
         {
-            // ReSharper disable once NotAccessedVariable : todo: use it to sync speed of updates
-            long lastReadChunk = 0;
-            SynchronizerRequest.Types.RegionOfInterest regionOfInterest = null;
-            var inputTask = Task.Run(async () =>
+            using var _queue = new BlockingCollection<ObjectState>();
+            void OnWorldChanged(object _, ObjectState state)
             {
-                var input = requestStream.ReadAllAsync(context.CancellationToken);
-                await foreach (var r in input)
-                {
-                    Interlocked.Exchange(ref lastReadChunk, r.LastReadChunk);
-                    regionOfInterest = r.RegionOfInterest;
-                }
-            });
+                _queue.Add(state);
+            }
+            _world.OnChanged += OnWorldChanged;
 
-            long chunk = 0;
-
-            while (await _queue.OutputAvailableAsync(context.CancellationToken))
+            try
             {
-                var obj = await _queue.ReceiveAsync(context.CancellationToken);
-                if (regionOfInterest == null)
+                // ReSharper disable once NotAccessedVariable : todo: use it to sync speed of updates
+                long lastReadChunk = 0;
+                SynchronizerRequest.Types.RegionOfInterest regionOfInterest = null;
+                var inputTask = Task.Run(async () =>
                 {
-                    continue;
-                }
-
-                if (regionOfInterest.Xmin > obj.X || regionOfInterest.Xmax < obj.X ||
-                    regionOfInterest.Ymin > obj.Y || regionOfInterest.Ymax < obj.Y )
-                {
-                    continue;
-                }
-
-                var lrc = Interlocked.Read(ref lastReadChunk);
-                if (lrc + 100 < chunk)
-                {
-                    _logger.LogWarning("TODO: squash changes for one object because client is slow");
-                }
-                // write changes to response:
-                await responseStream.WriteAsync(new SynchronizerResponse()
-                {
-                    Chunk = chunk++,
-                    Objects = { new SynchronizerResponse.Types.Object()
+                    var input = requestStream.ReadAllAsync(context.CancellationToken);
+                    await foreach (var r in input)
                     {
-                        Id = obj.Id,
-                        X = obj.X,
-                        Y = obj.Y,
-                        State = obj.State,
-                        Type = obj.Type,
-                    } }
+                        Interlocked.Exchange(ref lastReadChunk, r.LastReadChunk);
+                        regionOfInterest = r.RegionOfInterest;
+                    }
                 });
+
+                int i = 0;
+                var sw = new Stopwatch();
+                var sw2 = new Stopwatch();
+                sw.Start();
+                long delayMax = 0;
+                long chunk = 0;
+                foreach (var obj in _queue.GetConsumingEnumerable(context.CancellationToken))
+                {
+                    i++;
+                    /*
+                    if (regionOfInterest == null)
+                    {
+                        continue;
+                    }
+    
+                    if (regionOfInterest.Xmin > obj.X || regionOfInterest.Xmax < obj.X ||
+                        regionOfInterest.Ymin > obj.Y || regionOfInterest.Ymax < obj.Y )
+                    {
+                        continue;
+                    }*/
+
+                    var lrc = Interlocked.Read(ref lastReadChunk);
+                    if (lrc + 100 < chunk)
+                    {
+                        _logger.LogWarning("TODO: squash changes for one object because client is slow");
+                    }
+
+                    sw2.Start();
+                    // write changes to response:
+                    await responseStream.WriteAsync(new SynchronizerResponse()
+                    {
+                        Chunk = chunk++,
+                        Objects =
+                        {
+                            new SynchronizerResponse.Types.Object()
+                            {
+                                Id = obj.Id,
+                                X = obj.X,
+                                Y = obj.Y,
+                                State = obj.State,
+                                Type = obj.Type,
+                            }
+                        }
+                    });
+                    sw2.Stop();
+
+                    var elapsed = sw.ElapsedMilliseconds;
+                    if (delayMax < elapsed && i > 40)
+                    {
+                        delayMax = elapsed;
+                        _logger.LogInformation($"Max delay {delayMax} {sw2.ElapsedMilliseconds}");
+                    }
+
+                    sw.Restart();
+                }
+            }
+            finally
+            {
+                _world.OnChanged -= OnWorldChanged;
+                _queue.CompleteAdding();
             }
         }
 
         public void Dispose()
         {
-            _world.OnChanged -= OnWorldChanged;
-            _queue.Complete();
+            //_world.OnChanged -= OnWorldChanged;
+            //_queue.CompleteAdding();
         }
     }
 }

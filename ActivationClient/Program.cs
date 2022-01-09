@@ -18,7 +18,8 @@ namespace Client
             var cancellationToken = cancellationTokenSource.Token;
 
             // The port number(5001) must match the port of the gRPC server.
-            using var channel = GrpcChannel.ForAddress("http://localhost:5000");
+            //using var channel = GrpcChannel.ForAddress("http://localhost:5000");
+            using var channel = GrpcChannel.ForAddress("http://192.168.0.108:5000");
             //using var channel = GrpcChannel.ForAddress("http://18.191.29.36:5000");
             var client = new Commands.Activator.ActivatorClient(channel);
 
@@ -43,7 +44,7 @@ namespace Client
                         LastReadChunk = lastReadChunk,
                         RegionOfInterest = new SynchronizerRequest.Types.RegionOfInterest()
                         {
-                            Xmin = 0, Xmax = 2000, Ymin = 0, Ymax = 2000
+                            Xmin = 0, Xmax = 3000, Ymin = 0, Ymax = 3000
                         },
                     });
                 }
@@ -70,13 +71,13 @@ namespace Client
 
                 var elapsed = sw.ElapsedMilliseconds;
                 sw.Restart();
-                if (i > 100)
+                if (i > 40)
                 {
                     maxDelay = Math.Max(maxDelay, elapsed);
                 }
 
                 sb.Append($"elapsed = {elapsed} max = {maxDelay}");
-                sb.Append("                                      \r");
+                sb.Append("                     \r");
                 Console.Write(sb.ToString());
                 //await Task.Delay(200);
             }
